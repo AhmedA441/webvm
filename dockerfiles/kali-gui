@@ -1,0 +1,36 @@
+# Kali (32-bit userland) + Xorg + i3 for CheerpX. Build it with WebVM's "Deploy" GitHub workflow.
+# The final .ext2 must stay under 2 GB, because GitHub release files can't be bigger.
+FROM --platform=i386 docker.io/i386/debian:bookworm
+ARG DEBIAN_FRONTEND=noninteractive
+
+# 1) Turn Debian into Kali by switching the package source to kali-rolling.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+ && rm -f /etc/apt/sources.list /etc/apt/sources.list.d/* \
+ && curl -fsSL https://archive.kali.org/archive-key.asc | gpg --dearmor -o /usr/share/keyrings/kali-archive-keyring.gpg \
+ && echo "deb [signed-by=/usr/share/keyrings/kali-archive-keyring.gpg] http://http.kali.org/kali kali-rolling main contrib non-free non-free-firmware" > /etc/apt/sources.list \
+ && apt-get update \
+ && apt-get -y full-upgrade
+
+# 2) Tools. There is no network inside the VM, so only list tools that work on local files.
+RUN apt-get install -y --no-install-recommends \
+      nmap john binwalk netcat-traditional python3 git vim-tiny less procps
+
+# 3) Desktop: Xorg + i3 (the combination Leaning Technologies demonstrates) + a terminal.
+RUN apt-get install -y --no-install-recommends \
+      xserver-xorg-core xserver-xorg-input-libinput x11-xserver-utils \
+      i3-wm dmenu xterm fonts-dejavu-core
+
+RUN apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# i3 config: Alt is the modifier. Alt+Enter terminal, Alt+d launcher, Alt+Shift+q close window.
+RUN mkdir -p /root/.config/i3 \
+ && printf 'set $mod Mod1\nfont pango:monospace 10\nfloating_modifier $mod\nbindsym $mod+Return exec xterm\nbindsym $mod+d exec dmenu_run\nbindsym $mod+Shift+q kill\nbindsym $mod+Shift+e exit\nexec --no-startup-id xterm\n' > /root/.config/i3/config
+
+# Starts Xorg on the browser canvas, then i3. Logs go to /tmp for debugging.
+RUN printf '#!/bin/sh\nexport HOME=/root DISPLAY=:0\nXorg :0 -nolisten tcp -noreset >/tmp/xorg.log 2>&1 &\nsleep 4\nexec i3 >/tmp/i3.log 2>&1\n' > /usr/local/bin/start-desktop \
+ && chmod +x /usr/local/bin/start-desktop
+
+WORKDIR /root
+ENV HOME="/root" TERM="xterm" USER="root" SHELL="/bin/bash" LANG="C.UTF-8"
+CMD [ "/bin/bash" ]
